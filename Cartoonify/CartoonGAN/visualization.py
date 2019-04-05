@@ -46,12 +46,15 @@ Disc_Loss = viz.line(
         Y=np.array([y]),
         X=np.array([x]),
 )
-
+Pre_Disc_Loss = viz.line(
+        Y=np.array([y]),
+        X=np.array([x]),
+)
 the_text = viz.text("")
 
 The_Image = viz.images(torch.zeros((8,3,512,256)),nrow=8)
 
-def Visualization(recon_loss=0.0,gen_loss=0.0,con_loss=0.0,disc_loss=0.0,Count=0,text=None,image=None,Type=0):
+def Visualization(predis_loss=0.0,recon_loss=0.0,gen_loss=0.0,con_loss=0.0,disc_loss=0.0,Count=0,text=None,image=None,Type=0):
     global the_acc
     global the_loss
     global the_text
@@ -80,6 +83,18 @@ def Visualization(recon_loss=0.0,gen_loss=0.0,con_loss=0.0,disc_loss=0.0,Count=0
         viz.text(text,
                  win=the_text,
                  append=True)
+    elif (Type == 1):
+        viz.line(
+            X=np.array([Count]),
+            Y=np.array([predis_loss]),
+            win=Pre_Disc_Loss,
+            update='append',
+            opts=dict(
+                title='PreDist_loss',
+                linecolor=np.array([[122, 34, 255]])
+            )
+        )
+        time.sleep(0.00001)
     else:
         viz.line(
             X=np.array([Count]),

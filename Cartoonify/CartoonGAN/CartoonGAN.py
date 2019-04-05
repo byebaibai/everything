@@ -30,6 +30,7 @@ parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for Adam opt
 parser.add_argument('--beta2', type=float, default=0.999, help='beta2 for Adam optimizer')
 parser.add_argument('--latest_generator_model', required=False, default='', help='the latest trained model path')
 parser.add_argument('--latest_discriminator_model', required=False, default='', help='the latest trained model path')
+parser.add_argument('--pre_discriminator_model', required=False,default='',help='the pretrained discriminator model path')
 args = parser.parse_args()
 
 print('------------ Options -------------')
@@ -107,15 +108,16 @@ D_optimizer = optim.Adam(D.parameters(), lr=args.lrD, betas=(args.beta1, args.be
 G_scheduler = optim.lr_scheduler.MultiStepLR(optimizer=G_optimizer, milestones=[args.train_epoch // 2, args.train_epoch // 4 * 3], gamma=0.1)
 D_scheduler = optim.lr_scheduler.MultiStepLR(optimizer=D_optimizer, milestones=[args.train_epoch // 2, args.train_epoch // 4 * 3], gamma=0.1)
 
+""" Generator Pre-train reconstruction """
+
 pre_train_hist = {}
 pre_train_hist['Recon_loss'] = []
 pre_train_hist['per_epoch_time'] = []
 pre_train_hist['total_time'] = []
 count = 0
 
-""" Pre-train reconstruction """
 if args.latest_generator_model == '':
-    print('Pre-training start!')
+    print('Generator Pre-training start!')
     start_time = time.time()
     for epoch in range(args.pre_train_epoch):
         epoch_start_time = time.time()
@@ -155,7 +157,7 @@ if args.latest_generator_model == '':
     pre_train_hist['total_time'].append(total_time)
     with open(os.path.join(args.name + '_results',  'pre_train_hist.pkl'), 'wb') as f:
         pickle.dump(pre_train_hist, f)
-
+    torch.save(G.state_dict(), os.path.join(args.name + '_results', 'pretrain_generator_param.pkl'))
     with torch.no_grad():
         G.eval()
         for n, (x, _) in enumerate(train_loader_src):
@@ -176,8 +178,62 @@ if args.latest_generator_model == '':
             if n == 4:
                 break
 else:
-    print('Load the latest generator model, no need to pre-train')
+    print('Load the latest generator model, no need to pretrain')
 
+""" Discriminator Pre-train reconstruction """
+if args.pre_discriminator_model == '':
+    print('Discriminator Pre-training start!')
+    real = torch.ones(args.batch_size, 1, args.input_size // 4, args.input_size // 4).to(device)
+    fake = torch.zeros(args.batch_size, 1, args.input_size // 4, args.input_size // 4).to(device)
+    start_time = time.time()
+    Disc_losses = []
+    for epoch in range(args.pre_train_epoch):
+        epoch_start_time = time.time()
+        for (y, _), (e, _) in zip( train_loader_tgt, train_loader_edge):
+            y, e = y.to(device), e.to(device)
+            # train D
+            D_optimizer.zero_grad()
+
+            D_real = D(y)
+            D_real_loss = BCE_loss(D_real, real)
+
+
+            D_edge = D(e)
+            D_edge_loss = BCE_loss(D_edge, fake)
+
+            Disc_loss = D_real_loss + D_edge_loss
+            Disc_losses.append(Disc_loss.item())
+
+            Disc_loss.backward()
+            D_optimizer.step()
+
+            if (index % args.print_per == 0):
+                disc_loss = (torch.mean(torch.FloatTensor(Disc_losses))).item()
+                printText = '[%d/%d](%d/7141) , Pre_Disc_loss: %.3f' % (
+                (epoch + 1), args.pre_train_epoch, (index + 1) * 8, torch.mean(torch.FloatTensor(Disc_losses)))
+                temp_loss = (torch.mean(torch.FloatTensor(Disc_losses))).item()
+                print(printText)
+                Visualization(recon_loss=temp_loss, text=printText , Type=1, Count=count)
+
+        per_epoch_time = time.time() - epoch_start_time
+        pre_train_hist['per_epoch_time'].append(per_epoch_time)
+        printText = '[%d/%d] - time: %.2f, Recon loss: %.3f' % (
+        (epoch + 1), args.pre_train_epoch, per_epoch_time, torch.mean(torch.FloatTensor(Disc_losses)))
+        print(printText)
+
+    total_time = time.time() - start_time
+    pre_train_hist['total_time'].append(total_time)
+    with open(os.path.join(args.name + '_results', 'pre_train_hist.pkl'), 'wb') as f:
+        pickle.dump(pre_train_hist, f)
+    torch.save(D.state_dict(), os.path.join(args.name + '_results', 'pretrain_discriminator_param.pkl'))
+else:
+
+    print('Load the latest discriminator model, no need to pretrain')
+
+
+
+
+""" Trainning """
 
 train_hist = {}
 train_hist['Disc_loss'] = []
@@ -192,9 +248,11 @@ fake = torch.zeros(args.batch_size, 1, args.input_size // 4, args.input_size // 
 
 count = 0
 for epoch in range(args.train_epoch):
+    per_update = 0
     index = 0
     epoch_start_time = time.time()
     G.train()
+    D.train()
     G_scheduler.step()
     D_scheduler.step()
     Disc_losses = []
@@ -204,27 +262,29 @@ for epoch in range(args.train_epoch):
         index = index + 1
 
         x, y, e = x.to(device), y.to(device), e.to(device)
+        per_update = per_update + 1
+        if(per_update == 1):
+            # train D
+            D_optimizer.zero_grad()
 
-        # train D
-        D_optimizer.zero_grad()
+            D_real = D(y)
+            D_real_loss = BCE_loss(D_real, real)
 
-        D_real = D(y)
-        D_real_loss = BCE_loss(D_real, real)
+            G_ = G(x)
+            D_fake = D(G_)
+            D_fake_loss = BCE_loss(D_fake, fake)
 
-        G_ = G(x)
-        D_fake = D(G_)
-        D_fake_loss = BCE_loss(D_fake, fake)
+            D_edge = D(e)
+            D_edge_loss = BCE_loss(D_edge, fake)
 
-        D_edge = D(e)
-        D_edge_loss = BCE_loss(D_edge, fake)
+            Disc_loss = D_real_loss + D_fake_loss + D_edge_loss
+            Disc_losses.append(Disc_loss.item())
+            train_hist['Disc_loss'].append(Disc_loss.item())
 
-        Disc_loss = D_real_loss + D_fake_loss + D_edge_loss
-        Disc_losses.append(Disc_loss.item())
-        train_hist['Disc_loss'].append(Disc_loss.item())
+            Disc_loss.backward()
+            D_optimizer.step()
 
-        Disc_loss.backward()
-        D_optimizer.step()
-
+        per_update = per_update % 3
         # train G
         G_optimizer.zero_grad()
 
@@ -255,7 +315,7 @@ for epoch in range(args.train_epoch):
             printText = '[%d/%d](%d/7141) , Disc loss: %.3f, Gen loss: %.3f, Con loss: %.3f' % ((epoch + 1), args.train_epoch, index*8, disc_loss,
                                                                                                 gen_loss, con_loss)
             print(printText)
-            Visualization(gen_loss=gen_loss,con_loss=con_loss,disc_loss=disc_loss,Count=count,text=printText,image=image,Type=1)
+            Visualization(gen_loss=gen_loss,con_loss=con_loss,disc_loss=disc_loss,Count=count,text=printText,image=image,Type=2)
 
 
     per_epoch_time = time.time() - epoch_start_time
