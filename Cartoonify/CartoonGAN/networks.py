@@ -9,16 +9,18 @@ class resnet_block(nn.Module):
         self.kernel = kernel
         self.strdie = stride
         self.padding = padding
-        self.conv1 = nn.Conv2d(channel, channel, kernel, stride, padding)
+        self.reflectPad1 = nn.ReflectionPad2d(1)
+        self.reflectPad2 = nn.ReflectionPad2d(1)
+        self.conv1 = nn.Conv2d(channel, channel, kernel, stride, 0)
         self.conv1_norm = nn.InstanceNorm2d(channel)
-        self.conv2 = nn.Conv2d(channel, channel, kernel, stride, padding)
+        self.conv2 = nn.Conv2d(channel, channel, kernel, stride, 0)
         self.conv2_norm = nn.InstanceNorm2d(channel)
 
         utils.initialize_weights(self)
 
     def forward(self, input):
-        x = F.relu(self.conv1_norm(self.conv1(input)), True)
-        x = self.conv2_norm(self.conv2(x))
+        x = F.relu(self.conv1_norm(self.conv1(self.reflectPad1(input))), True)
+        x = self.conv2_norm(self.conv2(self.reflectPad2(x)))
 
         return input + x #Elementwise Sum
  
@@ -32,14 +34,15 @@ class generator(nn.Module):
         self.nf = nf
         self.nb = nb
         self.down_convs = nn.Sequential(
-            nn.Conv2d(in_nc, nf, 7, 1, 3), #k7n64s1
+            nn.ReflectionPad2d(3),
+            nn.Conv2d(in_nc, nf, 7, 1, 0), #k7n64s1
             nn.InstanceNorm2d(nf),
             nn.ReLU(True),
             nn.Conv2d(nf, nf * 2, 3, 2, 1), #k3n128s2
             nn.Conv2d(nf * 2, nf * 2, 3, 1, 1), #k3n128s1
             nn.InstanceNorm2d(nf * 2),
             nn.ReLU(True),
-            nn.Conv2d(nf * 2, nf * 4, 3, 2, 1), #k3n256s1
+            nn.Conv2d(nf * 2, nf * 4, 3, 2, 1), #k3n256s2
             nn.Conv2d(nf * 4, nf * 4, 3, 1, 1), #k3n256s1
             nn.InstanceNorm2d(nf * 4),
             nn.ReLU(True),
@@ -60,7 +63,8 @@ class generator(nn.Module):
             nn.Conv2d(nf, nf, 3, 1, 1), #k3n64s1
             nn.InstanceNorm2d(nf),
             nn.ReLU(True),
-            nn.Conv2d(nf, out_nc, 7, 1, 3), #k7n3s1
+            nn.ReflectionPad2d(3),
+            nn.Conv2d(nf, out_nc, 7, 1, 0), #k7n3s1
             nn.Tanh(),
         )
 

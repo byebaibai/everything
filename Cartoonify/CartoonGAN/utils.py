@@ -17,7 +17,6 @@ def data_load(path, subfolder, transform, batch_size, shuffle=False, drop_last=T
             n -= 1
 
         n += 1
-
     return torch.utils.data.DataLoader(dset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last)
 
 def print_network(net):
@@ -39,5 +38,5 @@ def initialize_weights(net):
             m.weight.data.normal_(0, 0.02)
             m.bias.data.zero_()
         elif isinstance(m, nn.BatchNorm2d):
-            m.weight.data.fill_(1)
+            m.weight.data.fill_(1, 0.02)
             m.bias.data.zero_()
